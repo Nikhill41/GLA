@@ -1,4 +1,5 @@
 import {
+  Component,
   createContext,
   useContext,
   useEffect,
@@ -35,13 +36,47 @@ api.interceptors.response.use(
   },
 );
 const err = (e) => e.response?.data?.message || e.message;
+const normalizeMessages = (value) =>
+  (Array.isArray(value) ? value : [])
+    .filter(
+      (message) =>
+        message &&
+        typeof message === "object" &&
+        typeof message.messageId === "string" &&
+        typeof message.message === "string",
+    )
+    .map((message) => ({
+      ...message,
+      createdAt: message.createdAt || new Date().toISOString(),
+    }));
 const mergeMessages = (current, incoming) => {
-  const messages = new Map(current.map((message) => [message.messageId, message]));
-  incoming.forEach((message) => messages.set(message.messageId, message));
+  const messages = new Map(normalizeMessages(current).map((message) => [message.messageId, message]));
+  normalizeMessages(incoming).forEach((message) => messages.set(message.messageId, message));
   return [...messages.values()].sort(
-    (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
+    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
   );
 };
+class AppErrorBoundary extends Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error)
+      return (
+        <div className="p-8 text-red-300">
+          Chat temporarily failed to render. Please try opening the chat again.
+          <button
+            className={btn + " ml-3"}
+            onClick={() => this.setState({ error: null })}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    return this.props.children;
+  }
+}
 const btn =
     "rounded-full bg-amber-500 px-4 py-2 font-semibold text-slate-900 hover:bg-amber-400 disabled:opacity-50",
   card = "rounded-2xl bg-slate-800/70 p-4 border border-amber-500/20",
@@ -623,6 +658,13 @@ function Chat() {
     </div>
   );
 }
+function SafeChat() {
+  return (
+    <AppErrorBoundary>
+      <Chat />
+    </AppErrorBoundary>
+  );
+}
 function Notifications() {
   const [l, setL] = useState([]);
   useEffect(() => {
@@ -758,7 +800,7 @@ export default function App() {
           <Route path="/dashboard" element={P(Dashboard)} />
           <Route path="/requests" element={P(Requests)} />
           <Route path="/matches" element={P(Matches)} />
-          <Route path="/chat/:matchId" element={P(Chat)} />
+          <Route path="/chat/:matchId" element={P(SafeChat)} />
           <Route path="/notifications" element={P(Notifications)} />
           <Route path="/profile" element={P(Profile)} />
           <Route path="/settings" element={<Navigate to="/profile" />} />
