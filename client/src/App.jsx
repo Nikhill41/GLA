@@ -213,6 +213,7 @@ function Nav() {
       {[
         ["requests", "Requests"],
         ["matches", "Matches"],
+        ["chat", "Chat"],
         ["notifications", "Alerts"],
         ["profile", "Profile"],
       ].map(([p, l]) => (
@@ -860,6 +861,64 @@ function Matches() {
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+function ChatTab() {
+  const [matches, setMatches] = useState(null),
+    [error, setError] = useState("");
+
+  const load = () => {
+    setError("");
+    return api
+      .get("/matches")
+      .then((r) => setMatches(r.data))
+      .catch((e) => setError(err(e)));
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-xl font-bold text-amber-400">Chat</h2>
+        <p className="text-sm text-slate-400">
+          Chat is available only while a match is active.
+        </p>
+      </div>
+      {error && (
+        <div className="rounded-xl border border-red-500/40 bg-red-950/40 p-4 text-red-300">
+          {error}
+          <button onClick={load} className="ml-3 underline">
+            Try again
+          </button>
+        </div>
+      )}
+      {!matches && !error && <p>Loading active matches…</p>}
+      {matches && !matches.length && (
+        <div className={card}>
+          <p className="text-slate-300">No active matches yet.</p>
+          <p className="mt-1 text-sm text-slate-400">
+            Chat will appear here after a request is accepted.
+          </p>
+        </div>
+      )}
+      <div className="space-y-3">
+        {matches?.map((match) => (
+          <div key={match.matchId} className={card + " flex items-center gap-3"}>
+            <Avatar u={match.user} />
+            <div className="flex-1">
+              <Info u={match.user} />
+              <span className="text-xs text-green-400">● Active match</span>
+            </div>
+            <Link className={btn} to={"/chat/" + match.matchId}>
+              Open Chat
+            </Link>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1690,7 +1749,8 @@ function Profile() {
   const courses = useCourses(),
     { reload } = useAuth(),
     [p, setP] = useState(null),
-    [msg, setMsg] = useState("");
+    [msg, setMsg] = useState(""),
+    [deleting, setDeleting] = useState(false);
   useEffect(() => {
     api.get("/profile").then((r) => setP(r.data));
   }, []);
@@ -1726,6 +1786,24 @@ function Profile() {
       reload();
     } catch (z) {
       setMsg(err(z));
+    }
+  };
+  const deleteAccount = async () => {
+    if (
+      !confirm(
+        "Delete your account permanently? Your profile, requests, matches, messages, notifications, and photo will be removed.",
+      )
+    )
+      return;
+    setDeleting(true);
+    setMsg("");
+    try {
+      await api.delete("/profile");
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+    } catch (z) {
+      setMsg(err(z));
+      setDeleting(false);
     }
   };
   return (
@@ -1777,6 +1855,20 @@ function Profile() {
         />
         <button className={btn}>Save</button> <span>{msg}</span>
       </form>
+      <div className="border-t border-red-500/30 pt-4">
+        <h2 className="font-semibold text-red-300">Danger zone</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          Permanently delete your account and all associated data.
+        </p>
+        <button
+          type="button"
+          onClick={deleteAccount}
+          disabled={deleting}
+          className="mt-3 rounded-full border border-red-500/60 px-4 py-2 font-semibold text-red-300 transition hover:bg-red-500 hover:text-white disabled:opacity-50"
+        >
+          {deleting ? "Deleting account…" : "Delete my account"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1821,6 +1913,14 @@ export default function App() {
             }
           />
           <Route
+            path="/chat"
+            element={
+              <StudentRoute>
+                <ChatTab />
+              </StudentRoute>
+            }
+          />
+          <Route
             path="/chat/:matchId"
             element={
               <StudentRoute>
@@ -1851,8 +1951,6 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
-
 
 
 

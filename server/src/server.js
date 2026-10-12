@@ -12,6 +12,7 @@ import { Server } from "socket.io";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
+  BatchWriteCommand,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -22,6 +23,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   S3Client,
+  DeleteObjectCommand,
   PutObjectCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
@@ -80,6 +82,38 @@ const scan = async (T, F, V, N) => {
     k = r.LastEvaluatedKey;
   } while (k);
   return items;
+};
+const queryAll = async (table, keyName, value) => {
+  const items = [];
+  let k;
+  do {
+    const r = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: `${keyName}=:value`,
+        ExpressionAttributeValues: { ":value": value },
+        ExclusiveStartKey: k,
+      }),
+    );
+    items.push(...(r.Items || []));
+    k = r.LastEvaluatedKey;
+  } while (k);
+  return items;
+};
+const batchDelete = async (table, keys) => {
+  for (let i = 0; i < keys.length; i += 25) {
+    let pending = keys.slice(i, i + 25).map((Key) => ({
+      DeleteRequest: { Key },
+    }));
+    while (pending.length) {
+      const result = await ddb.send(
+        new BatchWriteCommand({
+          RequestItems: { [table]: pending },
+        }),
+      );
+      pending = result.UnprocessedItems?.[table] || [];
+    }
+  }
 };
 const U = (i) => get("Users", { userId: i });
 const byEmail = async (e) =>
@@ -678,10 +712,82 @@ const adminDelete = (table, key) =>
     await ddb.send(new DeleteCommand({ TableName: table, Key: key(q) }));
     s.json({ ok: true });
   });
+const deleteUserAccount = async (userId) => {
+  const user = await U(userId);
+  if (!user) throw bad("Record not found", 404);
+
+  try {
+    const [requests, matches] = await Promise.all([
+      scan("Requests"),
+      scan("Matches"),
+    ]);
+    const userRequests = requests.filter(
+      (request) =>
+        request.senderId === userId || request.receiverId === userId,
+    );
+    const userMatches = matches.filter(
+      (match) => match.user1Id === userId || match.user2Id === userId,
+    );
+    const messages = (
+      await Promise.all(
+        userMatches.map((match) => queryAll("Messages", "matchId", match.matchId)),
+      )
+    ).flat();
+    const userNotifications = await queryAll(
+      "Notifications",
+      "recipientId",
+      userId,
+    );
+
+    await batchDelete(
+      "Messages",
+      messages.map(({ matchId, messageId }) => ({ matchId, messageId })),
+    );
+    await batchDelete(
+      "Notifications",
+      userNotifications.map(({ recipientId, notificationId }) => ({
+        recipientId,
+        notificationId,
+      })),
+    );
+    await batchDelete(
+      "Requests",
+      userRequests.map(({ requestId }) => ({ requestId })),
+    );
+    await batchDelete(
+      "Matches",
+      userMatches.map(({ matchId }) => ({ matchId })),
+    );
+    if (user.photoKey) {
+      await s3.send(
+        new DeleteObjectCommand({ Bucket: B, Key: user.photoKey }),
+      );
+    }
+    await ddb.send(new DeleteCommand({ TableName: "Users", Key: { userId } }));
+  } catch (error) {
+    console.error(`User deletion failed for ${userId}`, error);
+    throw bad(
+      "User deletion failed. Check the server IAM permissions and try again.",
+      502,
+    );
+  }
+};
+const adminDeleteUser = h(async (q, s) => {
+  await deleteUserAccount(q.params.id);
+  s.json({ ok: true });
+});
 app.delete(
   "/api/admin/users/:id",
   adminAuth,
-  adminDelete("Users", (q) => ({ userId: q.params.id })),
+  adminDeleteUser,
+);
+app.delete(
+  "/api/profile",
+  auth,
+  h(async (q, s) => {
+    await deleteUserAccount(q.uid);
+    s.json({ ok: true });
+  }),
 );
 app.delete(
   "/api/admin/requests/:id",
