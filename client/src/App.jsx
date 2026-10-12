@@ -15,6 +15,7 @@ import {
   Link,
   useParams,
   useNavigate,
+  useLocation,
 } from "react-router-dom";
 import axios from "axios";
 import { io } from "socket.io-client";
@@ -168,7 +169,69 @@ function AdminRoute({ children }) {
   );
 }
 function Nav() {
-  const { logout, user } = useAuth();
+  const { logout, user } = useAuth(),
+    { pathname } = useLocation(),
+    [counts, setCounts] = useState({
+      requests: 0,
+      matches: 0,
+      notifications: 0,
+    });
+  const seenKey = (type) => `nav-seen-${type}-${user?.userId || ""}`;
+  const getSeen = (type) => {
+    try {
+      const value = JSON.parse(localStorage.getItem(seenKey(type)) || "[]");
+      return new Set(Array.isArray(value) ? value : []);
+    } catch {
+      return new Set();
+    }
+  };
+  const loadCounts = useCallback(async () => {
+    if (!user || user.isAdmin) return;
+    const [received, matches, notifications] = await Promise.all([
+      api.get("/requests/received"),
+      api.get("/matches"),
+      api.get("/notifications"),
+    ]);
+    const data = {
+      requests: received.data.filter((x) => x.status === "PENDING"),
+      matches: matches.data,
+      notifications: notifications.data.filter((x) => !x.read),
+    };
+    setCounts({
+      requests: data.requests.filter((x) => !getSeen("requests").has(x.requestId)).length,
+      matches: data.matches.filter((x) => !getSeen("matches").has(x.matchId)).length,
+      notifications: data.notifications.filter(
+        (x) => !getSeen("notifications").has(x.notificationId),
+      ).length,
+    });
+    const currentType =
+      pathname === "/requests"
+        ? "requests"
+        : pathname === "/matches"
+          ? "matches"
+          : pathname === "/notifications"
+            ? "notifications"
+            : null;
+    if (currentType) {
+      const ids = data[currentType].map((x) =>
+        currentType === "requests"
+          ? x.requestId
+          : currentType === "matches"
+            ? x.matchId
+            : x.notificationId,
+      );
+      const seen = getSeen(currentType);
+      ids.forEach((value) => seen.add(value));
+      localStorage.setItem(seenKey(currentType), JSON.stringify([...seen]));
+      setCounts((current) => ({ ...current, [currentType]: 0 }));
+    }
+  }, [pathname, user]);
+  useEffect(() => {
+    if (!user || user.isAdmin) return;
+    loadCounts().catch(() => undefined);
+    const timer = setInterval(() => loadCounts().catch(() => undefined), 30000);
+    return () => clearInterval(timer);
+  }, [loadCounts, user]);
   if (!user) return null;
 
   if (user.isAdmin) {
@@ -211,14 +274,23 @@ function Nav() {
         <span>GLA Dandiya Partner</span>
       </Link>
       {[
-        ["requests", "Requests"],
-        ["matches", "Matches"],
-        ["chat", "Chat"],
-        ["notifications", "Alerts"],
-        ["profile", "Profile"],
+        ["requests", "Requests", counts.requests],
+        ["matches", "Matches", counts.matches],
+        ["chat", "Chat", 0],
+        ["notifications", "Alerts", counts.notifications],
+        ["profile", "Profile", 0],
       ].map(([p, l]) => (
-        <Link key={p} to={"/" + p} className="hover:text-amber-300">
+        <Link
+          key={p}
+          to={"/" + p}
+          className="relative flex items-center gap-1 hover:text-amber-300"
+        >
           {l}
+          {p !== "chat" && p !== "profile" && counts[p] > 0 && (
+            <span className="min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
+              {counts[p] > 99 ? "99+" : counts[p]}
+            </span>
+          )}
         </Link>
       ))}
       <button
@@ -1961,4 +2033,3 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
