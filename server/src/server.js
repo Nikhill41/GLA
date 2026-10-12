@@ -29,7 +29,6 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { COURSES, validYear } from "./courses.js";
 const {
   JWT_SECRET: JWT,
-  JWT_EXPIRES_IN = "7d",
   ADMIN_EMAIL = "",
   ADMIN_PASSWORD_HASH = "",
   AWS_REGION: region,
@@ -37,6 +36,7 @@ const {
   CLIENT_URL = "http://localhost:5173",
   PORT = 4000,
 } = process.env;
+const SESSION_EXPIRES_IN = "10h";
 if (!JWT) throw new Error("JWT_SECRET required");
 const adminEmail = ADMIN_EMAIL.trim().toLowerCase();
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region }), {
@@ -93,11 +93,13 @@ const byEmail = async (e) =>
       }),
     )
   ).Items[0];
-const sign = (uid) => jwt.sign({ uid }, JWT, { expiresIn: JWT_EXPIRES_IN });
-const signAdmin = () =>
-  jwt.sign({ admin: true, email: adminEmail }, JWT, {
-    expiresIn: JWT_EXPIRES_IN,
+const sign = (uid, sessionId) =>
+  jwt.sign({ uid, sessionId }, JWT, { expiresIn: SESSION_EXPIRES_IN });
+const signAdmin = (sessionId) =>
+  jwt.sign({ admin: true, email: adminEmail, sessionId }, JWT, {
+    expiresIn: SESSION_EXPIRES_IN,
   });
+let adminSessionId = null;
 const url = (k) =>
   k
     ? getSignedUrl(s3, new GetObjectCommand({ Bucket: B, Key: k }), {
@@ -180,41 +182,55 @@ const putPhoto = async (uid, f) => {
   return Key;
 };
 const auth = h((q, s, n) => {
-  try {
-    const token = jwt.verify(
+  Promise.resolve()
+    .then(async () => {
+      const token = jwt.verify(
       (q.headers.authorization || "").slice(7),
       JWT,
-    );
-    if (token.admin === true) {
-      throw bad("Admin token is not valid for student routes", 403);
-    }
-    if (!token.uid) {
-      throw bad("Unauthorized", 401);
-    }
-    q.uid = token.uid;
-  } catch (err) {
-    if (err.status === 403) throw err;
-    throw bad("Unauthorized", 401);
-  }
-  n();
+      );
+      if (token.admin === true) {
+        throw bad("Admin token is not valid for student routes", 403);
+      }
+      if (!token.uid || !token.sessionId) {
+        throw bad("Unauthorized", 401);
+      }
+      const u = await U(token.uid);
+      if (!u || u.loginSessionId !== token.sessionId) {
+        throw bad("This login session has expired", 401);
+      }
+      q.uid = token.uid;
+    })
+    .then(() => n())
+    .catch((err) => {
+      if (err.status === 403) return n(err);
+      n(bad("Unauthorized", 401));
+    });
 });
 const authMe = h((q, s, n) => {
-  try {
-    const token = jwt.verify(
+  Promise.resolve()
+    .then(async () => {
+      const token = jwt.verify(
       (q.headers.authorization || "").slice(7),
       JWT,
-    );
-    if (token.admin === true && token.email === adminEmail) {
-      q.admin = { email: adminEmail, isAdmin: true, name: "Administrator" };
-    } else if (token.uid) {
-      q.uid = token.uid;
-    } else {
-      throw new Error("Invalid identity token");
-    }
-  } catch {
-    throw bad("Unauthorized", 401);
-  }
-  n();
+      );
+      if (
+        token.admin === true &&
+        token.email === adminEmail &&
+        token.sessionId === adminSessionId
+      ) {
+        q.admin = { email: adminEmail, isAdmin: true, name: "Administrator" };
+      } else if (token.uid && token.sessionId) {
+        const u = await U(token.uid);
+        if (!u || u.loginSessionId !== token.sessionId) {
+          throw bad("This login session has expired", 401);
+        }
+        q.uid = token.uid;
+      } else {
+        throw bad("Invalid identity token");
+      }
+    })
+    .then(() => n())
+    .catch(() => n(bad("Unauthorized", 401)));
 });
 const isAdmin = (u) =>
   u && adminEmail && (u.email || "").toLowerCase() === adminEmail;
@@ -224,7 +240,11 @@ const adminAuth = h(async (q, s, n) => {
       (q.headers.authorization || "").slice(7),
       JWT,
     );
-    if (token.admin !== true || token.email !== adminEmail) {
+    if (
+      token.admin !== true ||
+      token.email !== adminEmail ||
+      token.sessionId !== adminSessionId
+    ) {
       throw bad("Forbidden: Admin access required", 403);
     }
     q.admin = { email: adminEmail, isAdmin: true, name: "Administrator" };
@@ -274,7 +294,14 @@ app.post(
       createdAt: now,
       updatedAt: now,
     });
-    s.status(201).json({ token: sign(userId) });
+    const sessionId = id();
+    await upd(
+      "Users",
+      { userId },
+      "SET loginSessionId=:s,updatedAt=:t",
+      { ":s": sessionId, ":t": now },
+    );
+    s.status(201).json({ token: sign(userId, sessionId) });
   }),
 );
 app.post(
@@ -287,12 +314,20 @@ app.post(
       ADMIN_PASSWORD_HASH &&
       (await bcrypt.compare(q.body.password || "", ADMIN_PASSWORD_HASH))
     ) {
-      return s.json({ token: signAdmin() });
+      adminSessionId = id();
+      return s.json({ token: signAdmin(adminSessionId) });
     }
     const u = await byEmail(email);
     if (!u || !(await bcrypt.compare(q.body.password || "", u.passwordHash)))
       throw bad("Invalid email or password", 401);
-    s.json({ token: sign(u.userId) });
+    const sessionId = id();
+    await upd(
+      "Users",
+      { userId: u.userId },
+      "SET loginSessionId=:s,updatedAt=:t",
+      { ":s": sessionId, ":t": iso() },
+    );
+    s.json({ token: sign(u.userId, sessionId) });
   }),
 );
 app.get(
@@ -303,7 +338,11 @@ app.get(
       (q.headers.authorization || "").slice(7),
       JWT,
     );
-    if (token.admin === true && token.email === adminEmail)
+    if (
+      token.admin === true &&
+      token.email === adminEmail &&
+      token.sessionId === adminSessionId
+    )
       return s.json({
         email: adminEmail,
         name: "Administrator",
@@ -312,6 +351,31 @@ app.get(
     const u = await U(q.uid);
     if (!u) throw bad("Unauthorized", 401);
     s.json({ ...(await own(u)), isAdmin: isAdmin(u) });
+  }),
+);
+app.post(
+  "/api/auth/logout",
+  authMe,
+  h(async (q, s) => {
+    const token = jwt.verify(
+      (q.headers.authorization || "").slice(7),
+      JWT,
+    );
+    if (token.admin === true) {
+      adminSessionId = null;
+    } else {
+      await upd(
+        "Users",
+        { userId: q.uid },
+        "REMOVE loginSessionId",
+        { ":s": token.sessionId },
+        undefined,
+        "loginSessionId=:s",
+      ).catch((error) => {
+        if (error.name !== "ConditionalCheckFailedException") throw error;
+      });
+    }
+    s.json({ ok: true });
   }),
 );
 // PROFILE
@@ -804,9 +868,15 @@ app.use((e, q, s, n) => {
   });
 });
 // SOCKET.IO: every join/send re-verifies match membership + ACTIVE status
-io.use((sock, n) => {
+io.use(async (sock, n) => {
   try {
-    sock.uid = jwt.verify(sock.handshake.auth.token, JWT).uid;
+    const token = jwt.verify(sock.handshake.auth.token, JWT);
+    if (!token.uid || !token.sessionId) throw new Error("Unauthorized");
+    const u = await U(token.uid);
+    if (!u || u.loginSessionId !== token.sessionId) {
+      throw new Error("Login session expired");
+    }
+    sock.uid = token.uid;
     n();
   } catch {
     n(new Error("Unauthorized"));
