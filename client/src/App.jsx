@@ -75,6 +75,9 @@ class AppErrorBoundary extends Component {
   static getDerivedStateFromError(error) {
     return { error };
   }
+  componentDidCatch(error, info) {
+    console.error("Chat render error", error, info.componentStack);
+  }
   render() {
     if (this.state.error)
       return (
@@ -610,7 +613,9 @@ function Chat() {
     s.on("unmatched", () => setSt("This match has ended."));
     return () => s.disconnect();
   }, [matchId]);
-  useEffect(() => end.current?.scrollIntoView({ behavior: "smooth" }), [msgs]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs]);
   const send = async (x) => {
     x.preventDefault();
     if (!t.trim()) return;
