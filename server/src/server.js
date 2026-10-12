@@ -546,7 +546,11 @@ const sendMsg = async (uid, matchId, text) => {
     };
   await put("Messages", msg);
   io.to(matchId).emit("message", msg);
-  await notify(to, "NEW_MESSAGE", `New message from ${(await U(uid)).name}`);
+  try {
+    await notify(to, "NEW_MESSAGE", `New message from ${(await U(uid)).name}`);
+  } catch (e) {
+    console.error("Message notification failed after message was saved", e);
+  }
   return msg;
 };
 app.get(
