@@ -36,25 +36,39 @@ api.interceptors.response.use(
   },
 );
 const err = (e) => e.response?.data?.message || e.message;
-const normalizeMessages = (value) =>
-  (Array.isArray(value) ? value : [])
-    .filter(
-      (message) =>
-        message &&
-        typeof message === "object" &&
-        typeof message.messageId === "string" &&
-        typeof message.message === "string",
-    )
-    .map((message) => ({
-      ...message,
-      createdAt: message.createdAt || new Date().toISOString(),
-    }));
+const normalizeMessages = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value.reduce((messages, message) => {
+    if (
+      message &&
+      typeof message === "object" &&
+      typeof message.messageId === "string" &&
+      typeof message.message === "string"
+    ) {
+      messages.push({
+        ...message,
+        createdAt:
+          typeof message.createdAt === "string"
+            ? message.createdAt
+            : new Date().toISOString(),
+      });
+    }
+    return messages;
+  }, []);
+};
 const mergeMessages = (current, incoming) => {
-  const messages = new Map(normalizeMessages(current).map((message) => [message.messageId, message]));
-  normalizeMessages(incoming).forEach((message) => messages.set(message.messageId, message));
-  return [...messages.values()].sort(
-    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+  const messages = new Map();
+  normalizeMessages(current).forEach((message) =>
+    messages.set(message.messageId, message),
   );
+  normalizeMessages(incoming).forEach((message) =>
+    messages.set(message.messageId, message),
+  );
+  return Array.from(messages.values()).sort((a, b) => {
+    const first = Date.parse(a.createdAt);
+    const second = Date.parse(b.createdAt);
+    return (Number.isNaN(first) ? 0 : first) - (Number.isNaN(second) ? 0 : second);
+  });
 };
 class AppErrorBoundary extends Component {
   state = { error: null };
