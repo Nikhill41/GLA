@@ -322,7 +322,7 @@ app.get(
   h(async (q, s) => {
     const me = await U(q.uid),
       u = await U(q.params.id);
-    if (!u || !u.isActive || u.gender === me.gender || u.userId === q.uid)
+    if (!u || u.isActive !== true || u.gender === me.gender || u.userId === q.uid)
       throw bad("User not found", 404);
     s.json(await pub(u));
   }),
@@ -337,8 +337,10 @@ app.post(
     const to = q.body.receiverId;
     if (to === q.uid) throw bad("Cannot request yourself");
     const [me, u] = await Promise.all([U(q.uid), U(to)]);
+    if (me?.isActive !== true)
+      throw bad("Switch your profile to Active to send requests");
     if (!u) throw bad("User not found", 404);
-    if (!u.isActive) throw bad("User is inactive");
+    if (u.isActive !== true) throw bad("User is inactive");
     if (u.gender === me.gender)
       throw bad("Same-gender requests are not allowed");
     const m = await get("Matches", { matchId: mid(pk(q.uid, to)) });
@@ -384,8 +386,15 @@ app.put(
     if (!r || r.receiverId !== q.uid) throw bad("Request not found", 404);
     if (r.status !== "PENDING") throw bad("Request is no longer pending", 409);
     const [a, b] = await Promise.all([U(r.senderId), U(r.receiverId)]);
-    if (!a || !b || !a.isActive || !b.isActive || a.gender === b.gender)
-      throw bad("Users are not eligible to match", 409);
+    if (!a || !b) throw bad("User no longer exists", 409);
+    if (a.isActive !== true) throw bad(`${a.name} is currently inactive`, 409);
+    if (b.isActive !== true)
+      throw bad(
+        "Your profile is inactive. Switch to Active in Profile to accept requests",
+        409,
+      );
+    if (a.gender === b.gender)
+      throw bad("Same-gender matches are not allowed", 409);
     const p = pk(a.userId, b.userId),
       now = iso(),
       N = { "#s": "status" };
