@@ -514,11 +514,10 @@ function Register() {
   const go = async (x) => {
     x.preventDefault();
     setE("");
-    if (!photo) return setE("Profile photo required");
     setB(true);
     const d = new FormData();
     Object.entries(f).forEach(([k, v]) => d.append(k, v));
-    d.append("photo", photo);
+    if (photo) d.append("photo", photo);
     try {
       const r = await api.post("/auth/register", d);
       await login(r.data.token);
@@ -532,16 +531,19 @@ function Register() {
   return (
     <Form title="Register">
       <form onSubmit={go} className="grid gap-3 sm:grid-cols-2">
+        <p className="text-xs text-slate-400 sm:col-span-2">
+          Details marked with * are compulsory.
+        </p>
         <input
           className={inp + " sm:col-span-2"}
           type="email"
-          placeholder="Email"
+          placeholder="Email *"
           required
           onChange={set("email")}
         />
         <input
           className={inp + " sm:col-span-2"}
-          placeholder="Full name"
+          placeholder="Full name *"
           required
           onChange={set("name")}
         />
@@ -552,7 +554,7 @@ function Register() {
           defaultValue=""
         >
           <option value="" disabled>
-            Course
+            Course *
           </option>
           {courses.map((c) => (
             <option key={c.name}>{c.name}</option>
@@ -565,7 +567,7 @@ function Register() {
           onChange={set("year")}
         >
           <option value="" disabled>
-            Year
+            Year *
           </option>
           {years.map((y) => (
             <option key={y} value={y}>
@@ -578,37 +580,40 @@ function Register() {
           type="number"
           min="16"
           max="39"
-          placeholder="Age (16–39)"
+          placeholder="Age (16–39) *"
           required
           onChange={set("age")}
         />
         <input
           className={inp}
           type="tel"
-          placeholder="Mobile number"
+          placeholder="Mobile number (optional)"
           onChange={set("mobile")}
         />
-        <select className={inp} value={f.gender} onChange={set("gender")}>
-          <option>Female</option>
-          <option>Male</option>
-        </select>
+        <label className="text-sm text-slate-300">
+          Gender *
+          <select className={inp + " mt-1"} value={f.gender} onChange={set("gender")}>
+            <option>Female</option>
+            <option>Male</option>
+          </select>
+        </label>
         <input
           className={inp}
           type="password"
-          placeholder="Password"
+          placeholder="Password *"
           required
           onChange={set("password")}
         />
         <input
           className={inp + " sm:col-span-2"}
           type="password"
-          placeholder="Confirm password"
+          placeholder="Confirm password *"
           required
           onChange={set("confirmPassword")}
         />
         <label className="block cursor-pointer rounded-lg border border-dashed border-amber-500/70 bg-slate-900/70 p-4 text-center transition hover:bg-slate-900 sm:col-span-2">
           <span className="font-semibold text-amber-300">
-            {photo ? photo.name : "Upload profile photo"}
+            {photo ? photo.name : "Upload profile photo (optional)"}
           </span>
           <span className="mt-1 block text-xs text-slate-400">
             JPG, PNG or WEBP · maximum 3MB
@@ -617,7 +622,6 @@ function Register() {
             className="sr-only"
             type="file"
             accept="image/jpeg,image/png,image/webp"
-            required
             onChange={(x) => setP(x.target.files[0])}
           />
         </label>
@@ -1957,7 +1961,4 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
-
-
 

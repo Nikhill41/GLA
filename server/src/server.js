@@ -309,11 +309,10 @@ app.post(
     const b = q.body,
       email = (b.email || "").trim().toLowerCase();
     val({ ...b, email }, true);
-    if (!q.file) throw bad("Profile photo required");
     if (await byEmail(email)) throw bad("Email already registered", 409);
     const userId = id(),
       now = iso(),
-      photoKey = await putPhoto(userId, q.file);
+      photoKey = q.file ? await putPhoto(userId, q.file) : undefined;
     await put("Users", {
       userId,
       email,
