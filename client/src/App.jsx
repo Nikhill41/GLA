@@ -145,10 +145,14 @@ function Private({ children }) {
 function Nav() {
   const { logout, user } = useAuth();
   return (
-    <nav className="flex flex-wrap items-center gap-4 border-b border-amber-500/30 bg-slate-950/60 p-3">
-      <span className="font-bold text-amber-400">🪘 Dandiya Night</span>
+    <nav className="flex flex-wrap items-center gap-3 border-b border-amber-500/30 bg-slate-950/60 p-3">
+      <Link
+        to="/dashboard"
+        className="mr-2 font-bold text-amber-400 transition hover:text-amber-300"
+      >
+        🪘 Dandiya Night
+      </Link>
       {[
-        ["dashboard", "Discover"],
         ["requests", "Requests"],
         ["matches", "Matches"],
         ["notifications", "Alerts"],
@@ -158,8 +162,11 @@ function Nav() {
           {l}
         </Link>
       ))}
-      <button onClick={logout} className="ml-auto text-sm text-slate-300">
-        Logout ({user.name})
+      <button
+        onClick={logout}
+        className="ml-auto rounded-full border border-amber-500/60 px-4 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-500 hover:text-slate-950"
+      >
+        Logout
       </button>
     </nav>
   );
@@ -242,10 +249,15 @@ function Login() {
           onChange={(x) => setF({ ...f, password: x.target.value })}
         />
         {e && <p className="text-red-400">{e}</p>}
-        <button className={btn}>Login</button>{" "}
-        <Link to="/register" className="text-sm underline">
-          Create account
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <button className={btn}>Login</button>
+          <Link to="/register" className="text-sm underline">
+            Create account
+          </Link>
+          <Link to="/dashboard" className="text-sm text-amber-300 underline">
+            Dashboard
+          </Link>
+        </div>
       </form>
     </Form>
   );
@@ -337,7 +349,9 @@ function Register() {
         <input
           className={inp}
           type="number"
-          placeholder="Age"
+          min="16"
+          max="39"
+          placeholder="Age (16–39)"
           required
           onChange={set("age")}
         />
@@ -365,15 +379,33 @@ function Register() {
           required
           onChange={set("confirmPassword")}
         />
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          onChange={(x) => setP(x.target.files[0])}
-        />
+        <label className="block cursor-pointer rounded-lg border border-dashed border-amber-500/70 bg-slate-900/70 p-4 text-center transition hover:bg-slate-900">
+          <span className="font-semibold text-amber-300">
+            {photo ? photo.name : "Upload profile photo"}
+          </span>
+          <span className="mt-1 block text-xs text-slate-400">
+            JPG, PNG or WEBP · maximum 3MB
+          </span>
+          <input
+            className="sr-only"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            required
+            onChange={(x) => setP(x.target.files[0])}
+          />
+        </label>
         {e && <p className="text-red-400">{e}</p>}
-        <button disabled={busy} className={btn}>
-          {busy ? "Creating…" : "Register"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button disabled={busy} className={btn}>
+            {busy ? "Creating…" : "Register"}
+          </button>
+          <Link to="/login" className="text-sm underline">
+            Already registered?
+          </Link>
+          <Link to="/dashboard" className="text-sm text-amber-300 underline">
+            Dashboard
+          </Link>
+        </div>
       </form>
     </Form>
   );
@@ -407,8 +439,25 @@ function Dashboard() {
     ? courses.find((c) => c.name === fl.course)?.years
     : [1, 2, 3, 4, 5];
   return (
-    <div>
-      <div className="mb-4 grid gap-2 sm:grid-cols-3">
+    <div className="space-y-5">
+      <section className="rounded-2xl border border-amber-500/30 bg-gradient-to-r from-slate-800 to-slate-900 p-6 shadow-xl">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-400">
+          Discover
+        </p>
+        <h1 className="mt-1 text-3xl font-bold text-white">
+          Find your Dandiya partner
+        </h1>
+        <p className="mt-2 max-w-2xl text-slate-300">
+          Browse active students and send a request to your perfect festival
+          partner.
+        </p>
+      </section>
+      <section className={card}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-amber-300">Search partners</h2>
+          <span className="text-sm text-slate-400">Age 16–39</span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
         <input
           className={inp}
           placeholder="Search by name"
@@ -435,16 +484,17 @@ function Dashboard() {
             </option>
           ))}
         </select>
-      </div>
+        </div>
+      </section>
       {e && <p className="text-red-400">{e}</p>}
       {!l ? (
         <p>Loading…</p>
       ) : !l.length ? (
         <p>No active partners found.</p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           {l.map((u) => (
-            <div key={u.userId} className={card + " flex gap-3"}>
+            <div key={u.userId} className={card + " flex min-h-40 gap-4 shadow-lg"}>
               <Avatar u={u} />
               <div className="flex-1">
                 <Info u={u} />
@@ -788,6 +838,8 @@ function Profile() {
         <input
           className={inp}
           type="number"
+          min="16"
+          max="39"
           value={p.age}
           onChange={set("age")}
         />

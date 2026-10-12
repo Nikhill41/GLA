@@ -143,7 +143,7 @@ const val = (b, full) => {
   if (!validYear(b.course, +b.year))
     throw bad("Invalid course or year for that course");
   const a = +b.age;
-  if (!Number.isInteger(a) || a < 16 || a > 60) throw bad("Invalid age");
+  if (!Number.isInteger(a) || a < 16 || a >= 40) throw bad("Age must be between 16 and 39");
   if (!/^[6-9]\d{9}$/.test(b.mobile || "")) throw bad("Invalid mobile number");
   if ((b.bio || "").length > 200) throw bad("Bio too long");
 };
