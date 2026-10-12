@@ -188,7 +188,9 @@ const val = (b, full) => {
     throw bad("Invalid course or year for that course");
   const a = +b.age;
   if (!Number.isInteger(a) || a < 16 || a >= 40) throw bad("Age must be between 16 and 39");
-  if (!/^[6-9]\d{9}$/.test(b.mobile || "")) throw bad("Invalid mobile number");
+  const mobile = (b.mobile || "").trim();
+  if (mobile && !/^[6-9]\d{9}$/.test(mobile))
+    throw bad("Invalid mobile number");
   if ((b.bio || "").length > 200) throw bad("Bio too long");
 };
 const up = multer({
@@ -290,10 +292,10 @@ const adminAuth = h(async (q, s, n) => {
 });
 const app = express(),
   srv = http.createServer(app),
-  io = new Server(srv, { cors: { origin: CLIENT_URL } });
+  io = new Server(srv, { cors: { origin: CLIENT_URL  || "https://gla-dandiya-partner-match.netlify.app"} });
 app.use(
   helmet(),
-  cors({ origin: CLIENT_URL }),
+  cors({ origin: CLIENT_URL || "https://gla-dandiya-partner-match.netlify.app" }),
   express.json({ limit: "100kb" }),
   rateLimit({ windowMs: 6e4, limit: 300 }),
 );
@@ -319,7 +321,7 @@ app.post(
       course: b.course,
       year: +b.year,
       age: +b.age,
-      mobile: b.mobile,
+      mobile: (b.mobile || "").trim(),
       gender: b.gender,
       bio: b.bio || "",
       passwordHash: await bcrypt.hash(b.password, 10),
@@ -433,7 +435,7 @@ app.put(
         ":c": b.course,
         ":y": +b.year,
         ":a": +b.age,
-        ":m": b.mobile,
+        ":m": (b.mobile || "").trim(),
         ":b": b.bio || "",
         ":t": iso(),
       },

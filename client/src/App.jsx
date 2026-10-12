@@ -584,8 +584,8 @@ function Register() {
         />
         <input
           className={inp}
+          type="tel"
           placeholder="Mobile number"
-          required
           onChange={set("mobile")}
         />
         <select className={inp} value={f.gender} onChange={set("gender")}>
@@ -1845,7 +1845,13 @@ function Profile() {
           value={p.age}
           onChange={set("age")}
         />
-        <input className={inp} value={p.mobile} onChange={set("mobile")} />
+        <input
+          className={inp}
+          type="tel"
+          placeholder="Mobile number (optional)"
+          value={p.mobile || ""}
+          onChange={set("mobile")}
+        />
         <textarea
           className={inp}
           placeholder="Short bio"
@@ -1951,7 +1957,6 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
 
 
 
