@@ -1,0 +1,2 @@
+@import "tailwindcss";
+body{background:radial-gradient(circle at top,#1e2a5a,#0b1030 70%);color:#f1f5f9;min-height:100vh;font-family:system-ui,sans-serif}
