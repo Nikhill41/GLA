@@ -36,39 +36,39 @@ api.interceptors.response.use(
   },
 );
 const err = (e) => e.response?.data?.message || e.message;
-const normalizeMessages = (value) => {
-  if (!Array.isArray(value)) return [];
-  return value.reduce((messages, message) => {
-    if (
-      message &&
-      typeof message === "object" &&
-      typeof message.messageId === "string" &&
-      typeof message.message === "string"
-    ) {
-      messages.push({
-        ...message,
-        createdAt:
-          typeof message.createdAt === "string"
-            ? message.createdAt
-            : new Date().toISOString(),
-      });
-    }
-    return messages;
-  }, []);
-};
 const mergeMessages = (current, incoming) => {
-  const messages = new Map();
-  normalizeMessages(current).forEach((message) =>
-    messages.set(message.messageId, message),
-  );
-  normalizeMessages(incoming).forEach((message) =>
-    messages.set(message.messageId, message),
-  );
-  return Array.from(messages.values()).sort((a, b) => {
+  const messages = Object.create(null);
+  const add = (value) => {
+    if (!Array.isArray(value)) return;
+    for (const message of value) {
+      if (
+        message &&
+        typeof message === "object" &&
+        typeof message.messageId === "string" &&
+        typeof message.message === "string"
+      ) {
+        messages[message.messageId] = {
+          ...message,
+          createdAt:
+            typeof message.createdAt === "string"
+              ? message.createdAt
+              : new Date().toISOString(),
+        };
+      }
+    }
+  };
+  add(current);
+  add(incoming);
+  const result = [];
+  for (const messageId of Object.keys(messages)) {
+    result.push(messages[messageId]);
+  }
+  result.sort((a, b) => {
     const first = Date.parse(a.createdAt);
     const second = Date.parse(b.createdAt);
     return (Number.isNaN(first) ? 0 : first) - (Number.isNaN(second) ? 0 : second);
   });
+  return result;
 };
 class AppErrorBoundary extends Component {
   state = { error: null };
@@ -580,6 +580,7 @@ function Chat() {
     [loadError, setLoadError] = useState(""),
     [busy, setB] = useState(false),
     end = useRef();
+  const visibleMessages = Array.isArray(msgs) ? msgs : [];
   useEffect(() => {
     const s = io(import.meta.env.VITE_API_URL || undefined, {
       auth: { token: localStorage.token },
@@ -635,8 +636,8 @@ function Chat() {
         <p className="text-red-400">{st}</p>
       )}
       <div className="h-[55vh] space-y-2 overflow-y-auto">
-        {!msgs.length && <p className="text-slate-400">Say hello! 👋</p>}
-        {msgs.map((m) => (
+        {!visibleMessages.length && <p className="text-slate-400">Say hello! 👋</p>}
+        {visibleMessages.map((m) => (
           <div
             key={m.messageId}
             className={
