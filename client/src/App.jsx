@@ -372,10 +372,10 @@ function Form({ title, children }) {
   return (
     <>
       <AuthNav />
-      <div className="mx-auto grid max-w-6xl gap-6 p-4 lg:grid-cols-[1fr_0.85fr] lg:p-10">
+      <div className="mx-auto grid max-w-7xl gap-6 p-4 lg:grid-cols-2 lg:p-10">
         <AuthIntro title={title} />
         <div className="flex items-start justify-center">
-          <div className="w-full max-w-md">
+          <div className="w-full max-w-xl">
             <div className={card + " border-white/10 bg-slate-800/80 p-6 shadow-2xl shadow-slate-950/30 backdrop-blur-xl"}>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
                 {title === "Login" ? "Welcome back" : "Join the community"}
@@ -530,16 +530,16 @@ function Register() {
   if (ok) return <Navigate to="/dashboard" />;
   return (
     <Form title="Register">
-      <form onSubmit={go} className="space-y-3">
+      <form onSubmit={go} className="grid gap-3 sm:grid-cols-2">
         <input
-          className={inp}
+          className={inp + " sm:col-span-2"}
           type="email"
           placeholder="Email"
           required
           onChange={set("email")}
         />
         <input
-          className={inp}
+          className={inp + " sm:col-span-2"}
           placeholder="Full name"
           required
           onChange={set("name")}
@@ -599,13 +599,13 @@ function Register() {
           onChange={set("password")}
         />
         <input
-          className={inp}
+          className={inp + " sm:col-span-2"}
           type="password"
           placeholder="Confirm password"
           required
           onChange={set("confirmPassword")}
         />
-        <label className="block cursor-pointer rounded-lg border border-dashed border-amber-500/70 bg-slate-900/70 p-4 text-center transition hover:bg-slate-900">
+        <label className="block cursor-pointer rounded-lg border border-dashed border-amber-500/70 bg-slate-900/70 p-4 text-center transition hover:bg-slate-900 sm:col-span-2">
           <span className="font-semibold text-amber-300">
             {photo ? photo.name : "Upload profile photo"}
           </span>
@@ -620,8 +620,8 @@ function Register() {
             onChange={(x) => setP(x.target.files[0])}
           />
         </label>
-        {e && <p className="text-red-400">{e}</p>}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+        {e && <p className="text-red-400 sm:col-span-2">{e}</p>}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 sm:col-span-2">
           <button disabled={busy} className={btn}>
             {busy ? "Creating…" : "Register"}
           </button>
@@ -1785,7 +1785,7 @@ export default function App() {
     <BrowserRouter>
       <Provider>
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Navigate to="/register" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route
@@ -1851,10 +1851,6 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
-
-
-
 
 
 
