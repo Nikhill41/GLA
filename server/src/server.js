@@ -15,6 +15,7 @@ import {
   GetCommand,
   PutCommand,
   UpdateCommand,
+  DeleteCommand,
   ScanCommand,
   QueryCommand,
   TransactWriteCommand,
@@ -29,12 +30,15 @@ import { COURSES, validYear } from "./courses.js";
 const {
   JWT_SECRET: JWT,
   JWT_EXPIRES_IN = "7d",
+  ADMIN_EMAIL = "",
+  ADMIN_PASSWORD_HASH = "",
   AWS_REGION: region,
   AWS_S3_BUCKET: B,
   CLIENT_URL = "http://localhost:5173",
   PORT = 4000,
 } = process.env;
 if (!JWT) throw new Error("JWT_SECRET required");
+const adminEmail = ADMIN_EMAIL.trim().toLowerCase();
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region }), {
   marshallOptions: { removeUndefinedValues: true },
 });
@@ -90,6 +94,10 @@ const byEmail = async (e) =>
     )
   ).Items[0];
 const sign = (uid) => jwt.sign({ uid }, JWT, { expiresIn: JWT_EXPIRES_IN });
+const signAdmin = () =>
+  jwt.sign({ admin: true, email: adminEmail }, JWT, {
+    expiresIn: JWT_EXPIRES_IN,
+  });
 const url = (k) =>
   k
     ? getSignedUrl(s3, new GetObjectCommand({ Bucket: B, Key: k }), {
@@ -173,8 +181,55 @@ const putPhoto = async (uid, f) => {
 };
 const auth = h((q, s, n) => {
   try {
-    q.uid = jwt.verify((q.headers.authorization || "").slice(7), JWT).uid;
+    const token = jwt.verify(
+      (q.headers.authorization || "").slice(7),
+      JWT,
+    );
+    if (token.admin === true) {
+      throw bad("Admin token is not valid for student routes", 403);
+    }
+    if (!token.uid) {
+      throw bad("Unauthorized", 401);
+    }
+    q.uid = token.uid;
+  } catch (err) {
+    if (err.status === 403) throw err;
+    throw bad("Unauthorized", 401);
+  }
+  n();
+});
+const authMe = h((q, s, n) => {
+  try {
+    const token = jwt.verify(
+      (q.headers.authorization || "").slice(7),
+      JWT,
+    );
+    if (token.admin === true && token.email === adminEmail) {
+      q.admin = { email: adminEmail, isAdmin: true, name: "Administrator" };
+    } else if (token.uid) {
+      q.uid = token.uid;
+    } else {
+      throw new Error("Invalid identity token");
+    }
   } catch {
+    throw bad("Unauthorized", 401);
+  }
+  n();
+});
+const isAdmin = (u) =>
+  u && adminEmail && (u.email || "").toLowerCase() === adminEmail;
+const adminAuth = h(async (q, s, n) => {
+  try {
+    const token = jwt.verify(
+      (q.headers.authorization || "").slice(7),
+      JWT,
+    );
+    if (token.admin !== true || token.email !== adminEmail) {
+      throw bad("Forbidden: Admin access required", 403);
+    }
+    q.admin = { email: adminEmail, isAdmin: true, name: "Administrator" };
+  } catch (err) {
+    if (err.status === 403) throw err;
     throw bad("Unauthorized", 401);
   }
   n();
@@ -225,7 +280,16 @@ app.post(
 app.post(
   "/api/auth/login",
   h(async (q, s) => {
-    const u = await byEmail((q.body.email || "").trim().toLowerCase());
+    const email = (q.body.email || "").trim().toLowerCase();
+    if (
+      adminEmail &&
+      email === adminEmail &&
+      ADMIN_PASSWORD_HASH &&
+      (await bcrypt.compare(q.body.password || "", ADMIN_PASSWORD_HASH))
+    ) {
+      return s.json({ token: signAdmin() });
+    }
+    const u = await byEmail(email);
     if (!u || !(await bcrypt.compare(q.body.password || "", u.passwordHash)))
       throw bad("Invalid email or password", 401);
     s.json({ token: sign(u.userId) });
@@ -233,11 +297,21 @@ app.post(
 );
 app.get(
   "/api/auth/me",
-  auth,
+  authMe,
   h(async (q, s) => {
+    const token = jwt.verify(
+      (q.headers.authorization || "").slice(7),
+      JWT,
+    );
+    if (token.admin === true && token.email === adminEmail)
+      return s.json({
+        email: adminEmail,
+        name: "Administrator",
+        isAdmin: true,
+      });
     const u = await U(q.uid);
     if (!u) throw bad("Unauthorized", 401);
-    s.json(await own(u));
+    s.json({ ...(await own(u)), isAdmin: isAdmin(u) });
   }),
 );
 // PROFILE
@@ -482,6 +556,95 @@ app.put(
   close("REJECTED", "receiverId", "REQUEST_REJECTED"),
 );
 app.delete("/api/requests/:id", auth, close("CANCELLED", "senderId"));
+// ADMIN
+const adminItems = async (table) => scan(table);
+const adminUser = async (u) => {
+  const data = await own(u);
+  return { ...data, isAdmin: isAdmin(u) };
+};
+app.get(
+  "/api/admin/overview",
+  adminAuth,
+  h(async (q, s) => {
+    const [users, requests, matches, messages, notifications] =
+      await Promise.all([
+        adminItems("Users"),
+        adminItems("Requests"),
+        adminItems("Matches"),
+        adminItems("Messages"),
+        adminItems("Notifications"),
+      ]);
+    s.json({
+      admin: { email: q.admin.email },
+      stats: {
+        users: users.length,
+        activeUsers: users.filter((u) => u.isActive === true).length,
+        pendingRequests: requests.filter((r) => r.status === "PENDING").length,
+        activeMatches: matches.filter((m) => m.status === "ACTIVE").length,
+        messages: messages.length,
+        notifications: notifications.length,
+      },
+      users: await Promise.all(users.map(adminUser)),
+      requests,
+      matches,
+      messages,
+      notifications,
+    });
+  }),
+);
+app.put(
+  "/api/admin/users/:id/status",
+  adminAuth,
+  h(async (q, s) => {
+    if (typeof q.body.isActive !== "boolean")
+      throw bad("isActive boolean required");
+    const u = await U(q.params.id);
+    if (!u) throw bad("User not found", 404);
+    await upd("Users", { userId: q.params.id }, "SET isActive=:a,updatedAt=:t", {
+      ":a": q.body.isActive,
+      ":t": iso(),
+    });
+    s.json(await adminUser(await U(q.params.id)));
+  }),
+);
+const adminDelete = (table, key) =>
+  h(async (q, s) => {
+    const item = await get(table, key(q));
+    if (!item) throw bad("Record not found", 404);
+    await ddb.send(new DeleteCommand({ TableName: table, Key: key(q) }));
+    s.json({ ok: true });
+  });
+app.delete(
+  "/api/admin/users/:id",
+  adminAuth,
+  adminDelete("Users", (q) => ({ userId: q.params.id })),
+);
+app.delete(
+  "/api/admin/requests/:id",
+  adminAuth,
+  adminDelete("Requests", (q) => ({ requestId: q.params.id })),
+);
+app.delete(
+  "/api/admin/matches/:id",
+  adminAuth,
+  adminDelete("Matches", (q) => ({ matchId: q.params.id })),
+);
+app.delete(
+  "/api/admin/messages/:matchId/:messageId",
+  adminAuth,
+  adminDelete("Messages", (q) => ({
+    matchId: q.params.matchId,
+    messageId: q.params.messageId,
+  })),
+);
+app.delete(
+  "/api/admin/notifications/:recipientId/:notificationId",
+  adminAuth,
+  adminDelete("Notifications", (q) => ({
+    recipientId: q.params.recipientId,
+    notificationId: q.params.notificationId,
+  })),
+);
 // MATCHES
 const mine = async (m, uid) => {
   if (!m || (m.user1Id !== uid && m.user2Id !== uid))
